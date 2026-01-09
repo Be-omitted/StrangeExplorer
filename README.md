@@ -37,9 +37,9 @@ StrangeExplorer是一个也许略显奇怪的本地资源管理器，支持多�
 
 切换 管理->查询位置->暂存区，点击选择以挑选下载文件夹
 
-![示例0](,/md/md0.png)
+![示例0](https://github.com/Be-omitted/StrangeExplorer/blob/master/md/md0.png)
 
-![示例1](,/md/md1.png)
+![示例1](https://github.com/Be-omitted/StrangeExplorer/blob/master/md/md1.png)
 
 对于这些Tag，左键打开详情，右键添加至文件内
 
