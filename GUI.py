@@ -9,6 +9,7 @@ import json
 import ctypes
 from concurrent.futures import ThreadPoolExecutor
 import os, os.path
+import webbrowser
 import SQL
 import subprocess
 import CrawlerAPI
@@ -913,7 +914,7 @@ class GUI:
         self.root_menu.add_command(label="库合并", command=self.win_merge)
         self.root_menu.add_command(label="|", state="disabled")
         self.root_menu.add_cascade(menu=menu_info, label="帮助")
-        menu_info.add_command(label="关于项目", command=lambda :0)
+        menu_info.add_command(label="关于项目", command=lambda :webbrowser.open(r"https://github.com/Be-omitted/StrangeExplorer"))
         # 界面分割
         self.root_message = tk.Label(self.root, text="...", background="#DCDCDC", font=self.font["message"], foreground="gray")
         self.root_main_notebook = tk.Notebook(self.root, style="Main.TNotebook")
