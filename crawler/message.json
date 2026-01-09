@@ -1,0 +1,22 @@
+[
+  {
+    "name": "JM-漫画",
+    "notes": "获取JM指定id漫画的相关信息，暂时仅支持漫画\n须使用东亚或东南亚ip(不含大陆ip)\n为避免占用服务器资源，建议在非高峰期使用",
+    "mark": "JMComic#",
+    "init": "",
+    "check": "[BaseUrl]\\Crawler\\crawler.exe --source JMComic --check",
+    "download_message": "[BaseUrl]\\Crawler\\crawler.exe --source JMComic --key [KEY] --save [DataUrl]\\ -m",
+    "download_data": "[BaseUrl]\\Crawler\\crawler.exe --source JMComic --key [KEY] --save [DataUrl]\\",
+    "update_data": "[BaseUrl]\\Crawler\\crawler.exe --source JMComic --key [KEY] --save [OldUrl]\\ -u [OldUrl]\\"
+  },
+  {
+    "name": "BiKa-漫画",
+    "notes": "获取BiKa指定id漫画的相关信息，暂时仅支持漫画\n在较差的网络环境下可能获取失败\n须使用非大陆ip(近新似乎有改？)\n为避免占用服务器资源，建议在非高峰期使用",
+    "mark": "BIKAComic#",
+    "init": "",
+    "check": "[BaseUrl]\\Crawler\\crawler.exe --source BikaComic --check",
+    "download_message": "[BaseUrl]\\Crawler\\crawler.exe --source BikaComic --key [KEY] --save [DataUrl]\\ -m",
+    "download_data": "[BaseUrl]\\Crawler\\crawler.exe --source BikaComic --key [KEY] --save [DataUrl]\\",
+    "update_data": "[BaseUrl]\\Crawler\\crawler.exe --source BikaComic --key [KEY] --save [OldUrl]\\ -u [OldUrl]\\"
+  }
+]
