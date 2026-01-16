@@ -564,7 +564,7 @@ class SQL:
     def select_files(self, key: str|int, _type: int, tag: set[str], tag0group: set[str], count_max: int=1000) -> list[int]:
         """
         根据key、type、tag、tag0group查询文件UID
-        特别的，如果存在其tag或tag0group的父系，被视为满足
+        特别的，如果存在其tag或tag0group的父级tag0group，直接父级子代tag, 子代tag，被视为满足
         :param key: 查询key，可根据名称或UID查询
         :param _type: 文件类型，参考常量
         :param tag: 文件tag，注意：重复项会被自动去重
@@ -575,43 +575,11 @@ class SQL:
         cur = self.conn.cursor()
         self.exists_error(cur, tag=tag, tag0group=tag0group)
         # 将tag进行整理，进行同义词组管理
-        data_tag = cur.execute(f"SELECT NAME, IN0GROUP FROM TAG WHERE NAME IN {self.to_tuple(tag)};").fetchall()
-        data_tag0group = cur.execute(f"SELECT NAME, IN0GROUP FROM TAG0GROUP WHERE NAME IN {self.to_tuple(tag0group)};").fetchall()
-        special_tag = list()  # type: list[list[set[str], ]]  # tag名需单独储存
-        special_tag0group = list()  # type: list[set[str]]
-        for _name, _in in data_tag:
-            _in = to_r_tag(_in)
-            if not _in:
-                continue
-            tag.remove(_name)
-            _all = [_in.copy(), _name]  # _name是tag名，与tag0group分割储存
-            while 1:
-                _d = cur.execute(f"SELECT IN0GROUP FROM TAG0GROUP WHERE NAME IN {self.to_tuple(_in)};").fetchall()
-                _in = set()
-                for _d_in in _d:
-                    _in.update(to_r_tag(_d_in[0]))
-                if not _in:
-                    break
-
-                _all[0] = _all[0].union(_in)
-            special_tag.append(_all)
-        for _name, _in in data_tag0group:
-            _in = to_r_tag(_in)
-            if not _in:
-                continue
-            tag0group.remove(_name)
-            _all = _in.copy()
-            while 1:
-                _d = cur.execute(f"SELECT IN0GROUP FROM TAG0GROUP WHERE NAME IN {self.to_tuple(_in)};").fetchall()
-                _in = set()
-                for _d_in in _d: _in.update(to_r_tag(_d_in[0]))
-                if not _in:
-                    break
-                _all = _all.union(_in)
-            special_tag0group.append(_all)
+        special_tag, tag = self.__tag_fathers_and_union("TAG", tag)
+        special_tag0group, tag0group = self.__tag_fathers_and_union("TAG0GROUP", tag0group)
         # 整理没有父系的tag
-        text = " ".join((f"AND INSTR(TAG, \"{i}\") > 0" for i in tag))
-        text += " ".join((f"AND INSTR(TAG0GROUP, \"{i}\") > 0" for i in tag0group))
+        text = " ".join((f"AND INSTR(TAG, \"#{i}#\") > 0" for i in tag))
+        text += " ".join((f"AND INSTR(TAG0GROUP, \"#{i}#\") > 0" for i in tag0group))
         # 尝试获取可能的file，无file则省略后续运算
         if isinstance(key, str):
             files = cur.execute(f"SELECT UID, TAG, TAG0GROUP FROM FILE WHERE NAME GLOB(\"*{key}*\") AND TYPE == ? "+text+";",
@@ -626,19 +594,13 @@ class SQL:
         for _uid, _tag, _tag0group in files:
             _tag = to_r_tag(_tag)
             _tag0group = to_r_tag(_tag0group)
-            is_true = True
-            for _d in special_tag:
-                if not ((_d[1] in _tag) or (_d[0] & _tag0group)):
-                    is_true = False
+            for _t in special_tag:
+                if not ((_t[1] & _tag) or (_t[0] & _tag0group)):
                     break
-            if not is_true:
-                break
-            for _t0g in special_tag0group:
-                if not (_t0g & _tag0group):
-                    is_true = False
+            for _tg in special_tag0group:
+                if not (_tg[0] & _tag0group or (_tg[1] & _tag)):
                     break
-            if is_true:
-                true_files.append(_uid)
+            true_files.append(_uid)
 
         cur.close()
         return true_files[:count_max]
@@ -805,6 +767,46 @@ class SQL:
             _tag0group = _tag0group.union(_in)
             if main_name in _in:
                 raise SQLRecursionError(main_name, _tg)
+    def __tag_fathers_and_union(self, _type: typing.Literal["TAG", "TAG0GROUP"], tag: set[str]) -> tuple[list[list[set[str]]], set[str]]:
+        """
+        获取所有tag或tag0group的父级tag0group，直接父级子代tag, 子代tag
+        :param _type: TAG或TAG0GROUP
+        :param tag: 名称列
+        :return: ([逐个[{同义tag0group}, {同义tag},...],...], {独立项})
+        """
+        cur = self.conn.cursor()
+        tag = tag.copy()
+        data = cur.execute(f"SELECT NAME, IN0GROUP FROM {_type} WHERE NAME IN {self.to_tuple(tag)};").fetchall()
+        special = list()  # type: list[list[set[str]]]
+        for _name, _in in data:
+            _in = to_r_tag(_in)
+            if not _in:  # 表示tag是独立的
+                continue
+            tag.remove(_name)
+            _all = [_in.copy(), set()]  # type: list[set[str]] # tag名与tag0group分割储存
+            _all[1].add(_name)
+            # 子代tag
+            if _type == "TAG0GROUP":
+                _all[1].update(to_r_tag(
+                    cur.execute(f"SELECT TAG0IN FROM TAG0GROUP WHERE NAME == ?;", (_name,)).fetchall()[0][0]))
+            # 获取全部父级tag0group
+            _count = 1
+            while _count:
+                _d = cur.execute(f"SELECT IN0GROUP FROM TAG0GROUP WHERE NAME IN {self.to_tuple(_in)};").fetchall()
+                _in = set()  # 覆盖前文_in，为使代码更简洁
+                for _d_in in _d:
+                    _in.update(to_r_tag(_d_in[0]))
+                if not _in:
+                    break
+                elif _count == 1: # 直接父系子代tag
+                    for _d_in in _d:
+                        for _d_in_tg in to_r_tag(_d_in[0]):
+                            _all[1].update(to_r_tag(
+                                cur.execute(f"SELECT TAG0IN FROM TAG0GROUP WHERE NAME == ?;", (_d_in_tg,)).fetchall()[0][0]))
+                _count += 1
+                _all[0] = _all[0].union(_in)
+            special.append(_all)
+        return special, tag
 
     def split_all_tag(self, path: str) -> bool:
         """
@@ -1070,16 +1072,19 @@ class Explorer(SQL):
         if not os.path.isdir(join(self.url_file, str(size))):
             os.mkdir(join(self.url_file, str(size)))
         return uid
-    def set_file_path(self, uid: int, path: str) -> bool:
+    def set_file_path(self, uid: int, path: str, is_shear: bool=False) -> bool:
         """
         将path所在文件复制至所在file目录下
         :param uid: 文件UID
         :param path: 文件路径
+        :param is_shear: 是否删除源文件
         :return: 是否成功
         """
         if not self.exist("FILE", uid, self.cur):
             raise SQLNULLError(uid, "FILE")
         shutil.copytree(src=path, dst=join(self.url_file, str(uid)), dirs_exist_ok=True)
+        if is_shear:
+            shutil.rmtree(path=path)
         return True
     def del_file_row(self, uid: int) -> bool:
         """

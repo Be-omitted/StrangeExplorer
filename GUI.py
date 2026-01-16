@@ -15,7 +15,7 @@ import subprocess
 import CrawlerAPI
 
 NAME = "StrangeExplorer"
-__version__ = "1.0"
+__version__ = "1.1"
 HEAD = f"{NAME}{__version__}"
 THIS_PATH = os.getcwd()
 ICO_PATH = os.path.join(THIS_PATH, "common\\m_icon.ico")
@@ -25,6 +25,7 @@ SCREEN_W = USER32.GetSystemMetrics(0)
 SCREEN_H = USER32.GetSystemMetrics(1)
 
 DEFAULT_SAVE_JSON = {"history_path": "", "crawler": []}
+main_gui = None  # type: GUI|None
 
 def init_style() -> tk.Style:
     """样式初始化"""
@@ -112,7 +113,7 @@ def get_file_size(url_dir: str|typing.LiteralString, _type: int) -> tuple[int, i
 def win_tag(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.Toplevel:
     """tag的细节描述界面"""
     win = tk.Toplevel(fwin)
-    win.geometry(f"300x200+{fwin.winfo_x()}+{fwin.winfo_y()}")
+    win.geometry(f"400x200+{fwin.winfo_x()}+{fwin.winfo_y()}")
     win.wm_iconbitmap(ICO_PATH)
     win.title(HEAD+f"--tag to {name}")
 
@@ -120,6 +121,7 @@ def win_tag(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.Toplev
     tag_data = cur.execute("SELECT NOTES, IN0GROUP, TYPE FROM TAG WHERE NAME == ?;", (name, )).fetchall()
 
     name_l = tk.Label(win, text=f"名称： {name}\t类型： {SQL.NAME_TYPE[tag_data[0][2]]}", style="Name.TLabel")
+    modify_b = tk.Button(win, text="修改", style="TagBox.TButton", command=lambda : main_gui.win_set_tag(name, 0))
     note_l = tk.Label(win, text=tag_data[0][0], wraplength=win.winfo_width()-10, style="Notes.TLabel", anchor="nw")
     tag_in_f = tk.Frame(win, style="TagFrame.TFrame")
 
@@ -132,8 +134,9 @@ def win_tag(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.Toplev
         tag_in.add_tag(n, win_t(win_tag0group, n))
 
     name_l.grid(row=0, column=0, sticky="nsew")
-    note_l.grid(row=1, column=0, sticky="nsew")
-    tag_in_f.grid(row=2, column=0, sticky="nsew")
+    modify_b.grid(row=0, column=1, sticky="nsew")
+    note_l.grid(row=1, column=0, sticky="nsew", columnspan=2)
+    tag_in_f.grid(row=2, column=0, sticky="nsew", columnspan=2)
     win.columnconfigure(0, weight=1)
     win.rowconfigure(1, weight=1)
     win.rowconfigure(2, weight=2)
@@ -147,7 +150,7 @@ def win_tag(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.Toplev
 def win_tag0group(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.Toplevel:
     """tag group的细节描述界面"""
     win = tk.Toplevel(fwin)
-    win.geometry(f"300x300+{fwin.winfo_x()}+{fwin.winfo_y()}")
+    win.geometry(f"400x300+{fwin.winfo_x()}+{fwin.winfo_y()}")
     win.wm_iconbitmap(ICO_PATH)
     win.title(HEAD+f"--tag group to {name}")
 
@@ -155,16 +158,18 @@ def win_tag0group(fwin: tk.Tk | tk.Toplevel, ex: SQL.Explorer, name: str) -> tk.
     tag_data = cur.execute("SELECT TAG0IN, TAG0IF, TAG0GROUP0IN, TAG0GROUP0IF, IN0GROUP, NOTES, TYPE FROM TAG0GROUP WHERE NAME == ?;", (name, )).fetchall()[0]
 
     name_l = tk.Label(win, text=f"名称： {name}\t类型： {SQL.NAME_TYPE[tag_data[6]]}", style="Name.TLabel")
+    modify_b = tk.Button(win, text="修改", style="TagBox.TButton", command=lambda : main_gui.win_set_tag(name, 1))
     note_l = tk.Label(win, text=tag_data[5], wraplength=win.winfo_width()-10, style="Notes.TLabel", anchor="nw")
     tag_in_f = tk.Frame(win, style="TagFrame.TFrame")
     tag_if_f = tk.Frame(win, style="TagFrame.TFrame")
     in_tag_f = tk.Frame(win, style="TagFrame.TFrame")
 
-    name_l.grid(row=0, column=0, sticky="nsew")
-    note_l.grid(row=1, column=0, sticky="nsew")
-    tag_in_f.grid(row=2, column=0, sticky="nsew")
-    tag_if_f.grid(row=3, column=0, sticky="nsew")
-    in_tag_f.grid(row=4, column=0, sticky="nsew")
+    name_l.grid(row=0, column=0, sticky="nsew", columnspan=2)
+    modify_b.grid(row=0, column=1, sticky="nsew")
+    note_l.grid(row=1, column=0, sticky="nsew", columnspan=2)
+    tag_in_f.grid(row=2, column=0, sticky="nsew", columnspan=2)
+    tag_if_f.grid(row=3, column=0, sticky="nsew", columnspan=2)
+    in_tag_f.grid(row=4, column=0, sticky="nsew", columnspan=2)
     win.columnconfigure(0, weight=1)
     win.rowconfigure(1, weight=1)
     win.rowconfigure(2, weight=4)
@@ -868,6 +873,9 @@ class ListBox:
 
 class GUI:
     def __init__(self, size: tuple[int, int]):
+        global main_gui
+        main_gui = self
+
         try:
             with open(os.path.join(THIS_PATH, "save.json"), "r", encoding="utf-8") as f:
                 self.json = json.loads(f.read())
@@ -875,7 +883,6 @@ class GUI:
             with open(os.path.join(THIS_PATH, "save.json"), "w", encoding="utf-8") as f:
                 f.write(json.dumps(DEFAULT_SAVE_JSON, ensure_ascii = False, indent = 4))
                 self.json = DEFAULT_SAVE_JSON
-
         self.main_ex = self.win_get_folder()
         self.win_size = size
 
@@ -931,8 +938,7 @@ class GUI:
         self.__main_save()
         self.__main_download_manage()
         self.__main_output()
-
-        self.set_message("初次使用请查询相关网页的帮助信息")
+        self.set_message("初次使用请查询相关网页的帮助信息", "green")
 
     def set_main_notebook(self, text: str) -> tk.Frame:
         f = tk.Frame(self.root)
@@ -1111,7 +1117,7 @@ class GUI:
         win.after(500, _main.fresh_wraplength)
         win.mainloop()
         cur.close()
-    def win_set_tag(self):
+    def win_set_tag(self, _oname: str="", _otype: int=0):
         if self.is_win_set_tag:
             self.set_message("不允许打开多个Tag管理窗口", "red")
             return
@@ -1462,7 +1468,7 @@ class GUI:
                     if object_tag["type"] != object_tag_copy["type"]:
                         self.main_ex.set_tag_type(name=object_tag["name"], _type=object_tag["type"])
                     if object_tag["note"] != object_tag_copy["note"]:
-                        self.main_ex.write_note(_type="TAG", _key=object_tag["name"], notes=object_tag["note"])
+                        self.main_ex.write_note(_type="TAG", _key=object_tag["name"], notes=object_tag["note"].strip())
                 else: # tag0group
                     # 添加新内容，同时也是实际中唯一SQL库内置异常可能的抛出点
                     # 此处为第一项储存，故无需考虑异常导致的储存不同步
@@ -1484,7 +1490,7 @@ class GUI:
                     if object_tag["type"] != object_tag_copy["type"]:
                         self.main_ex.set_tag0group_type(name=object_tag["name"], _type=object_tag["type"])
                     if object_tag["note"] != object_tag_copy["note"]:
-                        self.main_ex.write_note(_type="TAG0GROUP", _key=object_tag["name"], notes=object_tag["note"])
+                        self.main_ex.write_note(_type="TAG0GROUP", _key=object_tag["name"], notes=object_tag["note"].strip())
             except SQL.SQLRecursionError as e:
                 set_message(f"包含项或条件项（或其子系）中存在\'{e.goal_tag0group}\'本身，由\'{e.tag0group}\'引发", "red")
             except SQL.SQLDuplicateValuesError as e:
@@ -1542,9 +1548,14 @@ class GUI:
         win.bind("<Down>", down_key)
         # 初始化
         to_choose()
+        if _oname:
+            _name.set(_oname)
+            _type.set(_otype)
+            button2.invoke()
         win.mainloop()
     def win_crawler(self):
         this = []
+        pool = ThreadPoolExecutor(max_workers=1)
         # 基本架构定义
         win = tk.Toplevel(self.root)
         win.geometry(self.get_center(600, 400))
@@ -1580,7 +1591,7 @@ class GUI:
         tk.Label(cr_data_f, style="MainBase.TLabel", text="关键字：").grid(row=11, column=1, sticky="nsew", pady=5)
         cr_data_d_e.grid(row=11, column=2, sticky="nsew", pady=5)
         cr_data_d_b.grid(row=11, column=13, sticky="nsew", pady=5)
-        cr_data_d_message_l.grid(row=12, column=2, sticky="nsew")
+        cr_data_d_message_l.grid(row=12, column=2, sticky="nsew", columnspan=2)
 
         tk.Label(cr_data_notes_f, style="MainBase.TLabel", text="描述：").grid(row=1, column=1, sticky="nsew", pady=5)
         cr_data_note_l.grid(row=2, column=1, sticky="nsew", columnspan=2, pady=5)
@@ -1619,6 +1630,17 @@ class GUI:
                     this.append(self.crawlers[_this])
                     this.append(0)
                 w_data()
+        def no_choose(is_no: bool = True):
+            if is_no:
+                cr_data_check_b.config(state="disabled")
+                cr_data_d_e.config(state="disabled")
+                cr_data_d_b.config(state="disabled")
+                cr_lb.config(state="disabled")
+            else:
+                cr_data_check_b.config(state="!disabled")
+                cr_data_d_e.config(state="!disabled")
+                cr_data_d_b.config(state="!disabled")
+                cr_lb.config(state="normal")
         def init():
             cr_lb.delete(0, tk.END)
             for c in self.crawlers:
@@ -1626,6 +1648,7 @@ class GUI:
             cr_lb.insert("end", "导入源")
         def check():
             cr = this[0]  # type:CrawlerAPI.Crawler
+            no_choose()
             this[1] = -1
             w_data()
             is_s = cr.use_check()
@@ -1634,6 +1657,7 @@ class GUI:
             else:
                 this[1] = 2
             w_data()
+            no_choose(False)
         def d():
             cr = this[0]  # type:CrawlerAPI.Crawler
             keyword = cr_data_d_e.get()
@@ -1641,12 +1665,15 @@ class GUI:
                 return
             if keyword:
                 cr_data_d_message_l.config(text="下载中，请勿关闭窗口", foreground="green")
-                pool = ThreadPoolExecutor(max_workers=1)
-                future = pool.submit(lambda x:(cr_data_d_message_l.config(text="下载完成，请在管理->暂存区访问", foreground="green")
-                                               if cr.use_download_data(x) else cr_data_d_message_l.config(text="下载失败，可能是网络问题或已下载过，请在管理->暂存区访问", foreground="red")), keyword)
+                no_choose()
+                if cr.use_download_data(keyword):
+                    cr_data_d_message_l.config(text="下载完成，请在管理->暂存区访问", foreground="green")
+                else:
+                    cr_data_d_message_l.config(text="下载失败，可能是网络问题或已下载过，请在管理->暂存区访问", foreground="red")
+                no_choose(False)
 
-        cr_data_check_b["command"] = check
-        cr_data_d_b["command"] = d
+        cr_data_check_b["command"] = lambda :pool.submit(check)
+        cr_data_d_b["command"] = lambda :pool.submit(d)
         cr_lb.bind("<<ListboxSelect>>", selected)
         _init = init
         init()
@@ -2006,13 +2033,16 @@ class GUI:
                                             notes=file_data["notes"])
                 self.main_ex.commit()
                 file_data["uid"] = uid
-                self.main_ex.set_file_path(file_data["uid"], file_data["source"].get())
+                if how_file_c.get() == "下载暂存区":
+                    self.main_ex.set_file_path(file_data["uid"], file_data["source"].get())
+                else:
+                    self.main_ex.set_file_path(file_data["uid"], file_data["source"].get(), is_shear=True)
                 file_data["destination"].set(os.path.join(self.main_ex.url_file, str(uid)))
                 file_data["uid"] = uid
                 self.main_ex.commit()
             else:
                 self.main_ex.set_file_name(file_data["uid"], file_data["name"].get())
-                self.main_ex.write_note(_key=file_data["uid"], notes=file_data["notes"], _type="FILE")
+                self.main_ex.write_note(_key=file_data["uid"], notes=file_data["notes"].strip(), _type="FILE")
 
             _data = cur.execute("SELECT TAG, TAG0GROUP FROM File WHERE UID = ?", (file_data["uid"],)).fetchall()
             if not _data:
