@@ -169,7 +169,8 @@ class SQL:
         :param is_new: 是否新建数据库
         """
         self.url = url
-        self.conn = sqlite3.connect(url)
+
+        self.conn = sqlite3.connect(url, check_same_thread=False)
         self.cur = self.conn.cursor()
         if is_new:
             self.create()
