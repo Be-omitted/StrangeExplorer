@@ -595,12 +595,19 @@ class SQL:
         for _uid, _tag, _tag0group in files:
             _tag = to_r_tag(_tag)
             _tag0group = to_r_tag(_tag0group)
+            is_true = True
             for _t in special_tag:
                 if not ((_t[1] & _tag) or (_t[0] & _tag0group)):
+                    is_true = False
                     break
+            if not is_true:
+                continue
             for _tg in special_tag0group:
                 if not (_tg[0] & _tag0group or (_tg[1] & _tag)):
+                    is_true = False
                     break
+            if not is_true:
+                continue
             true_files.append(_uid)
 
         cur.close()
@@ -797,13 +804,15 @@ class SQL:
                 _in = set()  # 覆盖前文_in，为使代码更简洁
                 for _d_in in _d:
                     _in.update(to_r_tag(_d_in[0]))
-                if not _in:
-                    break
-                elif _count == 1: # 直接父系子代tag
+                if _count == 1:  # 直接父系子代tag
                     for _d_in in _d:
                         for _d_in_tg in to_r_tag(_d_in[0]):
                             _all[1].update(to_r_tag(
-                                cur.execute(f"SELECT TAG0IN FROM TAG0GROUP WHERE NAME == ?;", (_d_in_tg,)).fetchall()[0][0]))
+                                cur.execute(f"SELECT TAG0IN FROM TAG0GROUP WHERE NAME == ?;", (_d_in_tg,)).fetchall()[
+                                    0][0]))
+
+                if not _in:
+                    break
                 _count += 1
                 _all[0] = _all[0].union(_in)
             special.append(_all)

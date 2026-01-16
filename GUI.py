@@ -736,6 +736,7 @@ class ListBox:
         image = get_file_cover(url_dir, _type, (120, 150))
         self.image.append(image)
         f = self.__apply_frame(150)[0]
+        self.f00_height += 3  # 文件框有时会奇怪的缺失大小，调整一下
         image_l = tk.Label(f, image=image)
         data_f = tk.Frame(f, style="ListBox.TFrame")
         name_l = tk.Label(data_f, text="名称："+name, style="ListBoxName.TLabel", anchor="w")
@@ -2034,9 +2035,9 @@ class GUI:
                 self.main_ex.commit()
                 file_data["uid"] = uid
                 if how_file_c.get() == "下载暂存区":
-                    self.main_ex.set_file_path(file_data["uid"], file_data["source"].get())
-                else:
                     self.main_ex.set_file_path(file_data["uid"], file_data["source"].get(), is_shear=True)
+                else:
+                    self.main_ex.set_file_path(file_data["uid"], file_data["source"].get())
                 file_data["destination"].set(os.path.join(self.main_ex.url_file, str(uid)))
                 file_data["uid"] = uid
                 self.main_ex.commit()
