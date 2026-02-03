@@ -6,9 +6,11 @@
 
 对应SQL的source为：f"JM{id}"，在JMComic.__str__中返回
 """
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 import urllib.request as req
 import urllib.error
+from playwright.sync_api import sync_playwright
 import ssl
 import bs4
 import re
@@ -21,7 +23,8 @@ import json
 
 from SQL import TYPE_FILE_IMAGE
 
-ssl._create_default_https_context = ssl._create_unverified_context
+ctx = ssl.create_default_context()
+ctx.set_ciphers('DEFAULT@SECLEVEL=1')
 URL = r"https://18comic.org/"
 headers = {
     'accept-language': 'zh-CN,zh;q=0.9',
@@ -37,7 +40,7 @@ headers = {
     'authority': '18comic.vip',
     'origin': 'https://18comic.vip',
     'referer': 'https://18comic.vip',
-    'cookie': '__cfduid=d3af1fe4e02395143768f49120192d89a1612161290; _gid=GA1.2.537470263.1612161292; shunt=1; AVS=pgucjspmo4rgafa4vinl3feug4; ipcountry=TW; ipm5=ad96616d894884f20b4e263448a05911; _ga_YYJWNTTJEN=GS1.1.1612339484.9.1.1612339785.59; _gat_ga0=1; _gat_ga1=1; _ga=GA1.2.2093487367.1612161292; _gat_gtag_UA_99252457_3=1; cover=1; _gali=chk_cover',
+    'cookie': 'theme=light; sticky=67.159.52.204; _gid=GA1.2.1756399465.1769971325; __PPU_puid=16733628794982262746; cf_clearance=Km3DxbEuJ33vAQBf0R5fyTDNVsDULr4qMq0R1MR55Kk-1770007682-1.2.1.1-uLsV7Xu6orPoZkO89pTzi__8bMHlCTE10AZ4lJOLCLPIAffwsGgIxtTmp9VQIONJUQ2LhengwZDJq.Q4wQzsSp_g191SdZTWuBfBToH9AnIEgvo59cbrviWpbguTZ0ba0UtF3bc.XrUmAeFt_3T4QIK.4LR9EoAX9KUec_wQ0kkd.ZqTESgq1VfwfSv3CbgFEJgcUSYkTjppWRnIDX7OEUIVGQ8MuWRp6ZZgdzB9Tuvx_Uwuvqp11RRFxudgHo01; _clck=icpj7s%5E2%5Eg38%5E0%5E2223; rec_author=%E3%81%9F%E3%81%AC%E3%81%BE; ipcountry=US; AVS=knfkc82jgiephi46393db00jmq; cover=1; guide=1; ipm5=72ef54c2e694a0549dd9827ff03c0361; _ga=GA1.1.1074987445.1769971325; _ga_VW05C6PGN3=GS2.1.s1770007684$o2$g1$t1770008060$j60$l0$h0; _ga_3NP1GJ19M6=GS2.1.s1770007685$o2$g1$t1770008061$j59$l0$h0; _ga_C1BGNGMN6J=GS2.2.s1770007684$o2$g1$t1770008061$j60$l0$h0; _clsk=3r8uxn%5E1770008063057%5E8%5E0%5Ee.clarity.ms%2Fcollect; bnState_2076324=%7B%22impressions%22%3A3%2C%22delayStarted%22%3A0%7D; UGVyc2lzdFN0b3JhZ2U=%7B%22CAIFRQ%22%3A%22ADng1gAAAAAAAAABADnfRwAAAAAAAAABADnVsAAAAAAAAAAEADnVrwAAAAAAAAAB%22%2C%22CAIFRT%22%3A%22ADng1gAAAABpgC9QADnfRwAAAABpgC9QADnVsAAAAABpgC9QADnVrwAAAABpgC9Q%22%7D; bnState_2076328=%7B%22impressions%22%3A4%2C%22delayStarted%22%3A0%7D; bnState_2076322=%7B%22impressions%22%3A4%2C%22delayStarted%22%3A0%7D; bnState_2076320=%7B%22impressions%22%3A4%2C%22delayStarted%22%3A0%7D',
 }  # shunt=1 分流1，应该算是比较稳定的一个？
 transform_id = 220981
 max_pool = 30
@@ -70,84 +73,91 @@ _tag = {
 def read_tag(l : list) -> list[str]: return [HanziConv.toSimplified(i.text.strip()) for i in l]
 class JMComic:
     def __init__(self, comics_id: int | str, ):
-        """获取漫画主页数据"""
         self.id = comics_id
-        hc = req.Request(url=URL + "album/" + str(comics_id),
-                         headers=headers, )
-        with req.urlopen(hc, timeout=60) as data:
-            txt = data.read().decode('utf-8')
-            root = bs4.BeautifulSoup(txt, 'html.parser')
-
-            self.name = read_tag(root.find_all(_tag["homepage_name"][0], class_=_tag["homepage_name"][1]))[0]
-            self.tag = read_tag(root.find_all(_tag["homepage_tag"][0], class_=_tag["homepage_tag"][1]))
-            self.writer = read_tag(root.find_all(_tag["homepage_writer"][0], class_=_tag["homepage_writer"][1]))
-            self.actor = read_tag(root.find_all(_tag["homepage_actor"][0], class_=_tag["homepage_actor"][1]))
-            self.works = read_tag(root.find_all(_tag["homepage_works"][0], class_=_tag["homepage_works"][1]))
-            self.notes = read_tag(root.find_all(_tag["homepage_notes"][0], class_=_tag["homepage_notes"][1]))[0]
-            self.notes = re.sub(r"\s+", " ", self.notes)
-
-            self.tags = self.tag+self.writer+self.actor+self.works
-
-            page = read_tag(root.find_all(_tag["homepage_page"][0], class_=_tag["homepage_page"][1]))
-            self.page = int(page[0][3:])
-            self.chapter = []  # 表示章节名，页数，网页id
-            # 查找章节及其页数
-            chapter_f = root.find("ul", class_="btn-toolbar")
-            if chapter_f:
-                chapter_f = chapter_f.children
-                for _c in chapter_f:
-                    if _c.name == "a":
-                        _name = re.sub(r"\s+", " ", read_tag(_c.find("h3"))[0])
-                        self.chapter.append([_name, int(_c.get("data-album")), 0])
-                        _hc = req.Request(url=URL + "photo/" + str(_c.get("data-album")),
-                                          headers=headers)
-                with ThreadPoolExecutor(max_workers=20) as pool:
-                    r = pool.map(self.__thread_chapter, self.chapter, chunksize=20)
-                    for _ in r: pass
+        self.error_page_urls = set()  # 表示误下载的不存在的空白页
+        while 1:
+            p = sync_playwright().start()
+            browser = p.chromium.launch(headless=False)
+            pages = browser.new_page()
+            pages.goto(URL + "album/" + str(comics_id))
+            pages.wait_for_load_state("load")
+            daa = pages.content()
+            root = bs4.BeautifulSoup(daa, 'html.parser')
+            try:
+                self.name = read_tag(root.find_all(_tag["homepage_name"][0], class_=_tag["homepage_name"][1]))[0]
+            except:
+                p.stop()
             else:
-                self.chapter.append(["第1话", self.id, self.page])
+                break
+        self.tag = read_tag(root.find_all(_tag["homepage_tag"][0], class_=_tag["homepage_tag"][1]))
+        self.writer = read_tag(root.find_all(_tag["homepage_writer"][0], class_=_tag["homepage_writer"][1]))
+        self.actor = read_tag(root.find_all(_tag["homepage_actor"][0], class_=_tag["homepage_actor"][1]))
+        self.works = read_tag(root.find_all(_tag["homepage_works"][0], class_=_tag["homepage_works"][1]))
+        self.notes = read_tag(root.find_all(_tag["homepage_notes"][0], class_=_tag["homepage_notes"][1]))[0]
+        self.notes = re.sub(r"\s+", " ", self.notes)
+
+        self.tags = self.tag + self.writer + self.actor + self.works
+
+        page = read_tag(root.find_all(_tag["homepage_page"][0], class_=_tag["homepage_page"][1]))
+        self.page = int(page[0][3:])
+        self.chapter = []  # 表示章节名，网页id，页数  # 页数已基本被弃用，仅单章节时作为优化使用
+        # 查找章节及其页数
+        chapter_f = root.find("ul", class_="btn-toolbar")
+        if chapter_f:
+            chapter_f = chapter_f.children
+            for _c in chapter_f:
+                if _c.name == "a":
+                    _name = re.sub(r"\s+", " ", read_tag(_c.find("h3"))[0])
+                    self.chapter.append([_name, int(_c.get("data-album")), 0])
+        else:
+            self.chapter.append(["第1话", self.id, self.page])
+        p.stop()
 
     def download(self, path: str) -> bool:
         """下载漫画内容至指定目录"""
         path = os.path.join(path, "JMComic#"+str(self.id))
         os.mkdir(path)
         self.__input_message(os.path.join(path, "message.json"))
+        pool = ThreadPoolExecutor(max_workers=max_pool)
 
         download_l = []  # type: list[tuple[int, int, str]]  # 章节uid，页码，章节目录名
 
         for _c in range(len(self.chapter)):
             _p = os.path.join(path, f"{'%05d'%_c}_{self.chapter[_c][0]}")
             os.mkdir(_p)
-            for i in range(self.chapter[_c][2]):
-                download_l.append((self.chapter[_c][1], i+1, _p))
-
-        with ThreadPoolExecutor(max_workers=max_pool) as pool:
-            r = pool.map(self.__download_one, download_l, chunksize=max_pool)
-            for _ in r: pass
+            i = 0
+            while 1:  # 一次下10页直至找到空白页
+                for _ in range(10):
+                    download_l.append((self.chapter[_c][1], i+1, _p))
+                    i += 1
+                r = pool.map(self.__download_one, download_l, chunksize=max_pool)
+                for _ in r: pass
+                if self.error_page_urls:
+                    self.delete_error_page()
+                    download_l.clear()
+                    break
         return True
+    def delete_error_page(self):
+        """清除空白页"""
+        for i in self.error_page_urls:
+            os.remove(i)
+        self.error_page_urls.clear()
     @staticmethod
     def update(path: str, uid: str) -> bool:
         """对数据进行更新"""
         if not os.path.isdir(path):
             return False
         cr = JMComic(uid)
-        # 检查章节是否完整
-        failing = []  # type: list[tuple[int, int, str]]  # 章节uid，页码，章节目录名
-        for _c in range(len(cr.chapter)):
-            _p = os.path.join(path, f"{'%05d'%_c}_{cr.chapter[_c][0]}")
-            if not os.path.isdir(_p):
-                os.mkdir(_p)
-                for i in range(cr.chapter[_c][2]):
-                    failing.append((cr.chapter[_c][1], i+1, _p))
-            else:
-                _files = os.listdir(_p)
-                for i in range(cr.chapter[_c][2]):
-                    if f"{'%05d'%i}.png" not in _files:
-                        failing.append((cr.chapter[_c][1], i+1, _p))
-        with ThreadPoolExecutor(max_workers=max_pool) as pool:
-            r = pool.map(cr.__download_one, failing, chunksize=max_pool)
-            for _ in r: pass
-        return True
+        new = os.path.join(path, "new")
+        shutil.rmtree(new)
+        os.mkdir(new)
+        if cr.download(new):
+            shutil.copytree(new, path, dirs_exist_ok=True)
+            shutil.rmtree(new)
+            return True
+        else:
+            shutil.rmtree(new)
+            return False
 
     def input_message(self, path: str) -> bool:
         """将漫画相关数据导入至目标文件夹"""
@@ -177,8 +187,11 @@ class JMComic:
                 c -= 1
             else:
                 break
-        self.img_slice_restore(str(path), str(path[:-5]+'.png'), self.img_get_slices(str(_cid), "%05d"%_id))
-        os.remove(path)
+        if not os.path.getsize(str(path)):
+            self.error_page_urls.add(str(path))
+        else:
+            self.img_slice_restore(str(path), str(path[:-5]+'.png'), self.img_get_slices(str(_cid), "%05d"%_id))
+            os.remove(path)
     @staticmethod
     def __thread_chapter(l: list):
         _hc = req.Request(url=URL + "photo/" + str(l[1]),

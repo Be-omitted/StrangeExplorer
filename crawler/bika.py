@@ -19,6 +19,7 @@ import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 import json
 from os.path import join
+import shutil
 import ssl
 
 from SQL import TYPE_FILE_IMAGE
@@ -46,6 +47,12 @@ URL = "https://manhuabika.com/"
 
 _email = "OMITT"
 _password = "OMITT123456"
+if os.path.isfile("config.json"):
+    with open("config.json", "r", encoding="utf-8") as f:
+        d = json.loads(f.read())
+    _email = d["bika"]["_email"]
+    _password = d["bika"]["_password"]
+    del d
 
 def bika_plogin() -> tuple[playwright.sync_api.Playwright, playwright.sync_api.Page]:
         p = sync_playwright().start()
@@ -96,7 +103,6 @@ class BiKaComic:
         page.goto(URL+f"comic/{self.cid}")
         page.wait_for_load_state("networkidle")
         html = page.content()
-
         root = bs4.BeautifulSoup(html, 'html.parser')
 
         self.name = read_tag(root.find_all("h1", class_="comic-title"))[0]
@@ -108,9 +114,16 @@ class BiKaComic:
         self.tags.append(self.author)
 
         self.chapter = int(read_tag(root.find_all("span", class_="comic-tab-badge"))[0])
+        page.get_by_role("button", name="章节").click()
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(5000)
+        html = page.content()
+        root = bs4.BeautifulSoup(html, 'html.parser')
+        self.chapter_name = read_tag(root.find("div", class_="chapter-list-content").find_all("button", recursive=False))
         self.p = p
         self.page = page
         self.data = []
+        self.newpath = ""
 
     def download(self, path: str, is_hard: bool = True) -> bool:
         """
@@ -118,12 +131,14 @@ class BiKaComic:
         is_hard: 如果文件存在，是否覆盖，一般在更新操作时禁用
         """
         path = os.path.join(path, f"BIKAComic#{self.cid}")
+        self.newpath = os.path.join(path, "new")
         if not os.path.isdir(path):
             os.mkdir(path)
+        os.mkdir(self.newpath)
         self.__input_message(join(path, "message.json"))
 
         for i in range(self.chapter):
-            _path = os.path.join(path, "%05d"%i)
+            _path = os.path.join(path, f"%05d_{self.chapter_name[i]}"%i)
             if not os.path.isdir(_path):
                 os.mkdir(_path)
             self.page.goto(URL+f"comic/reader/{self.cid}/{i+1}")
@@ -141,6 +156,7 @@ class BiKaComic:
                 self.page.click("span:has-text('单页模式')")
                 self.page.wait_for_timeout(1000)
                 self.page.goto(URL+f"comic/reader/{self.cid}/{i+1}")
+                self.page.on("response", self.__download)
             self.page.wait_for_timeout(2000)
             page_text = self.page.locator("span.page-text").text_content()
             img_max = int(page_text.split("/")[1])
@@ -157,11 +173,17 @@ class BiKaComic:
                     self.page.wait_for_timeout(200)
                     continue
                 img_src = self.page.locator("img[alt='Page "+str(img_this)+"']").get_attribute("src")
-                self.data.append((img_src, os.path.join(_path, "%05d" % (img_this-ad_num-1) + os.path.splitext(img_src)[1]), is_hard))
+                self.data.append((img_src, os.path.join(_path, "%05d" % (img_this-ad_num-1) + os.path.splitext(img_src)[1])))
                 self.page.click("button[title='下一页']")
                 self.page.wait_for_timeout(200)
             img_src = self.page.locator("img[alt='Page " + str(img_max) + "']").get_attribute("src")
-            self.data.append((img_src, os.path.join(_path, "%05d" % (img_max-ad_num-1) + os.path.splitext(img_src)[1]), is_hard))
+            self.data.append((img_src, os.path.join(_path, "%05d" % (img_max-ad_num-1) + os.path.splitext(img_src)[1])))
+
+        # 提取符合要求的图片
+        for _src, _dst in self.data:
+            shutil.move(os.path.join(self.newpath, os.path.basename(_src)), _dst)
+        shutil.rmtree(self.newpath)
+
 
             # img = [i["data-src"] for i in root.find("div", id="chapter-images-id").find_all("img", recursive=False)]
             # imgs.append(img)
@@ -183,10 +205,12 @@ class BiKaComic:
         #         if not is_hard and os.path.isfile(__path):
         #             continue
         #         p_data.append((imgs[i][_i], __path))
-        for i in range(0, len(self.data), 10):
-            with ThreadPoolExecutor(max_workers=10) as p:
-                _p = p.map(self.__one_download, self.data[i:i+10])
-                for _ in _p: pass
+
+        # for i in range(0, len(self.data), 10):
+        #     with ThreadPoolExecutor(max_workers=10) as p:
+        #         _p = p.map(self.__one_download, self.data[i:i+10])
+        #         for _ in _p: pass
+
         # for _url, __path in self.data:
         #     if not is_hard and os.path.isfile(__path):
         #         continue
@@ -218,14 +242,25 @@ class BiKaComic:
                                 "tag": self.tag, "writer": self.author,
                                 "notes": self.notes}, ensure_ascii=False, indent=4))
             return True
+    def __download(self, response: playwright.sync_api.Response):
+        if response.request.resource_type == "image":
+            name = os.path.basename(response.url)
+            if 200 <= response.status <300:
+                with open(os.path.join(self.newpath, name), "wb") as f:
+                    f.write(response.body())
+
     def __one_download(self, arg: tuple[str, str, bool]):
+        """已弃用"""
         _url, __path, _is = arg
-        try:
-            if not _is and os.path.isfile(__path):
-                return
-            urllib.request.urlretrieve(_url, __path)
-        except urllib.error.HTTPError:
-            pass
+        if not _is and os.path.isfile(__path):
+            return
+        is_ = 6
+        while is_:
+            try:
+                urllib.request.urlretrieve(_url, __path)
+                is_ = 0
+            except Exception:
+                is_ -= 1
 
     def __str__(self) -> str:
         return f"BIKA{self.cid}"
@@ -245,5 +280,5 @@ class BiKaComic:
 
 if __name__ == "__main__":
     with ThreadPoolExecutor(max_workers=10) as __p:
-        ___p = __p.map(lambda x: BiKaComic(x).download(r"D:\AAA_practice\python\StrangeExplorer\test\save\scratch"), ["694fff379b2dc87f8b55cba5"])
+        ___p = __p.map(lambda x: BiKaComic(x).download(r"D:\AAA_practice\python\StrangeExplorer\test\save\scratch"), ["6194f45e3e70662ae1237df6"])
         for _ in ___p: pass

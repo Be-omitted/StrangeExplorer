@@ -736,7 +736,7 @@ class ListBox:
         image = get_file_cover(url_dir, _type, (120, 150))
         self.image.append(image)
         f = self.__apply_frame(150)[0]
-        self.f00_height += 3  # 文件框有时会奇怪的缺失大小，调整一下
+        self.f00_height += 4  # 文件框有时会奇怪的缺失大小，调整一下
         image_l = tk.Label(f, image=image)
         data_f = tk.Frame(f, style="ListBox.TFrame")
         name_l = tk.Label(data_f, text="名称："+name, style="ListBoxName.TLabel", anchor="w")
