@@ -769,6 +769,84 @@ class ListBox:
         notes_l.place(relx=0, rely=0.2, relwidth=0.8, relheight=0.4)
         tag_in_f.place(relx=0, rely=0.6, relwidth=0.8, relheight=0.4)
         data_file_f.place(relx=0.8, rely=0, relwidth=0.2, relheight=1)
+    def add_download_value(self, _data: dict[str: str], crawlers: list[CrawlerAPI.Crawler], _del_func: typing.Callable[[dict], None]) -> typing.Callable[[], None]:
+        """
+        下载任务的子栏目
+        :param _data: 子栏数据，需要原对象以便做更改
+        :param crawlers: 爬虫列表
+        :param _del_func: 删除函数，接收_data
+        :return: 下载函数
+        """
+        f = self.__apply_frame(40)[0]
+
+        tk.Label(f, text="关键字：", style="ListBoxFileSize.TLabel").grid(row=0, column=0, padx=5, pady=5)
+        _key_e  = tk.Entry(f)
+        _key_e.insert(0, _data["key"])
+        _key_e.grid(row=0, column=1, pady=5)
+        tk.Label(f, text="来源：", style="ListBoxFileSize.TLabel").grid(row=0, column=6, padx=5, pady=5)
+        _cr_c = tk.Combobox(f, values=[_c.name for _c in crawlers])
+        for i in range(len(crawlers)):
+            if crawlers[i].mark == _data["crawler"]:
+                _cr_c.current(i)
+                break
+        else:
+            _cr_c.current(0)
+        _cr_c.grid(row=0, column=7, pady=5)
+        _cr_c.state(["readonly"])
+        tk.Label(f, text="状态：", style="ListBoxFileSize.TLabel").grid(row=0, column=11, padx=5, pady=5)
+        _state_l = tk.Label(f, text="", style="ListBoxFileSize.TLabel")
+        _state_l.grid(row=0, column=12, pady=5)
+        _b1 = tk.Button(f, text="下载", style="ListBoxXQ.TButton")
+        _b1.grid(row=0, column=16, padx=5, pady=5)
+        _b2 = tk.Button(f, text="删除", style="ListBoxXQ.TButton")
+        _b2.grid(row=0, column=17, padx=5, pady=5)
+        f.columnconfigure(5, minsize=50)
+        f.columnconfigure(10, minsize=50)
+        f.columnconfigure(15, weight=1)
+        def fresh():
+            _data["key"] = _key_e.get()
+            _data["crawler"] = crawlers[_cr_c.current()].mark  # 依赖其顺序的同步
+            if _data["state"] == "no":
+                _b1.state(['!disabled'])
+                _b2.state(['!disabled'])
+                _key_e.state(['!disabled'])
+                _cr_c.state(['!disabled'])
+                _state_l.config(text="未下载", foreground="green")
+            elif _data["state"] == "yes":
+                _b1.state(["disabled"])
+                _key_e.state(["disabled"])
+                _cr_c.state(["disabled"])
+                _state_l.config(text="下载完成", foreground="green")
+            elif _data["state"] == "or":
+                _key_e.state(["disabled"])
+                _cr_c.state(["disabled"])
+                _state_l.config(text="异常", foreground="red")
+        def download():
+            fresh()
+            _state_l.config(text="下载中", foreground="yellow")
+            _b1.state(["disabled"])
+            _b2.state(["disabled"])
+            _key_e.state(["disabled"])
+            _cr_c.state(["disabled"])
+            _data["state"] = "or"  # 未完成前设为异常
+            _cr = crawlers[_cr_c.current()]
+            _returncode = _cr.use_download_data(key=_data["key"])
+            if _returncode == 0:
+                _data["state"] = "yes"
+            else:
+                _data["state"] = "no"
+            fresh()
+        def download_this():
+            pool = ThreadPoolExecutor(max_workers=10)
+            pool.submit(download)
+        def _del():
+            _del_func(_data)
+        _b1.config(command=download_this)
+        _b2.config(command=_del)
+        _key_e.bind("<KeyRelease>", lambda _: fresh())
+        _cr_c.bind("<<ComboboxSelected>>", lambda _: fresh())
+        fresh()
+        return download
 
     def add_tags_and_fresh(self, _data: list[tuple[str, str]], ex: SQL.Explorer, text: str="刷新更多", fresh_event=None):
         for n, nt in _data:
@@ -785,6 +863,20 @@ class ListBox:
             self.add_file(*_d, ex=ex)
         self.add_fresh(text, fresh_event)
         self.win.after(100, self.fresh)
+    def add_download_values_and_fresh(self, _data: list[dict[str: str]], crawlers: list[CrawlerAPI.Crawler], text: str="新增", fresh_event=None) -> list[typing.Callable[[], None]]:
+        def _del(_d: dict):
+            for i in range(len(_data)):
+                if _data[i] is _d:
+                    _data.pop(i)
+                    break
+            self.clear()
+            self.add_download_values_and_fresh(_data, crawlers, text, fresh_event)
+        _down_func = []
+        for _d in _data:
+            _down_func.append(self.add_download_value(_d, crawlers, _del))
+        self.add_fresh(text, fresh_event)
+        self.win.after(100, self.fresh)
+        return _down_func
 
     def clear(self):
         for t in self.f00.winfo_children():
@@ -911,13 +1003,16 @@ class GUI:
         # Menu
         self.root_menu = tk.Menu(self.root)
         menu_info = tk.Menu(self.root_menu)
+        menu_download = tk.Menu(self.root_menu)
         self.root["menu"] = self.root_menu
 
         self.root_menu.add_command(label="Tag表", command=self.win_tag)
         self.root_menu.add_command(label="Tag管理", command=self.win_set_tag)
         self.is_win_set_tag = False  # 查看set_tag窗口是否打开，SQL不允许异步
         self.root_menu.add_command(label="|", state="disabled")
-        self.root_menu.add_command(label="下载", command=self.win_crawler)
+        self.root_menu.add_cascade(menu=menu_download, label="下载")
+        menu_download.add_command(label="下载与源管理", command=self.win_crawler)
+        menu_download.add_command(label="批量下载", command=self.win_crawler_list)
         self.root_menu.add_command(label="|", state="disabled")
         self.root_menu.add_command(label="库合并", command=self.win_merge)
         self.root_menu.add_command(label="|", state="disabled")
@@ -1001,7 +1096,7 @@ class GUI:
         win.mainloop(0)
         self.json["history_path"] = folder.get()
         with open(os.path.join(THIS_PATH, "save.json"), "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.json))
+            f.write(json.dumps(self.json, ensure_ascii=False, indent=4))
 
         win.destroy()
         del win
@@ -1115,7 +1210,7 @@ class GUI:
         win_menu.add_command(label="TAG GROUP/刷新", command=to_tag0group)
 
         add_tag_50()
-        win.after(500, _main.fresh_wraplength)
+        win.after(100, _main.fresh_wraplength)
         win.mainloop()
         cur.close()
     def win_set_tag(self, _oname: str="", _otype: int=0):
@@ -1679,6 +1774,120 @@ class GUI:
         _init = init
         init()
         win.mainloop(0)
+    def win_crawler_list(self):
+        pool = ThreadPoolExecutor(max_workers=1)
+        _this = tk.IntVar(value=-1)
+        _down = []
+        download_list = self.json["download_list"]
+        # 基本架构定义
+        win = tk.Toplevel(self.root)
+        win.geometry(self.get_center(1200, 400))
+        win.title(HEAD + "--批量下载")
+        win["background"] = "#F8F8FF"
+        win.wm_iconbitmap(ICO_PATH)
+
+        message_l = tk.Label(win, text="...", style="MainBase.TLabel", foreground="gray")
+        list_lb = tk.Listbox(win, selectmode=tk.SINGLE)
+        value_f = tk.Frame(win, style="MainBase.TFrame")
+        message_l.grid(row=3, column=1, sticky="nsew", columnspan=2)
+        list_lb.grid(row=1, column=1, sticky="nsew")
+        value_f.grid(row=1, column=2, sticky="nsew")
+        tk.Separator(win, orient="horizontal").grid(row=2, column=0, sticky="nsew")
+        win.rowconfigure(1, weight=1)
+        win.columnconfigure(2, weight=1)
+
+        value_v_f = tk.Frame(value_f, style="MainBase.TFrame")
+        value_v_f.grid(row=1, column=1, sticky="nsew")
+        value_button_f = tk.Frame(value_f, style="MainBase.TFrame")
+        value_button_f.grid(row=2, column=1, sticky="nsew")
+        value_f.rowconfigure(1, weight=1)
+        value_f.columnconfigure(1, weight=1)
+
+        value_lb = ListBox(win, value_v_f)
+        del_b = tk.Button(value_button_f, text="删除", style="MainBase.TButton")
+        del_b.grid(row=1, column=1, sticky="nsew")
+        down_b = tk.Button(value_button_f, text="全部下载", style="MainBase.TButton")
+        down_b.grid(row=1, column=2, sticky="nsew")
+        value_button_f.columnconfigure(0, weight=1)
+        # 确保其按顺序列表储存
+        def new_item(key: int):
+            list_lb.delete("end")
+            list_lb.insert("end", download_list[key]["name"])
+            list_lb.insert("end", "新建下载任务")
+        def user_new_item():
+            _name = tk.StringVar(value="新下载任务")
+            new_win = tk.Toplevel(self.root)
+            new_win.geometry(self.get_center(250, 80))
+            new_win.title(HEAD + "--新建下载任务")
+            new_win["background"] = "#F8F8FF"
+            new_win.wm_iconbitmap(ICO_PATH)
+            def new():
+                name = _name.get()
+                if not name:
+                    name = "新下载任务"
+                download_list.append({"name": name, "value": []})
+                new_item(-1)
+                del _name
+                new_win.destroy()
+            tk.Label(new_win, text="输入名称：").grid(row=1, column=1, sticky="nsew", pady=5)
+            tk.Entry(new_win, style="MainBase.TEntry", textvariable=_name).grid(row=1, column=2, sticky="nsew", pady=5)
+            tk.Button(new_win, text="确认", style="MainBase.TButton", command=new).grid(row=2, column=2, sticky="e", pady=5)
+            new_win.mainloop(0)
+        for _i in range(len(download_list)):
+            new_item(_i)
+
+        def user_new_download_list(e):
+            _this.set(list_lb.curselection()[0])
+            if 0 <= _this.get() < list_lb.size() - 1:  # 最末尾为新建，排除
+                download_list[_this.get()]["value"].append(
+                    {"crawler": self.crawlers[0].mark,
+                     "key": "",
+                     "state": "no"})
+                selected(1)
+            else:
+                return
+        def selected(e):
+            _this.set(list_lb.curselection()[0])
+            if _this.get() == list_lb.size() - 1:
+                user_new_item()
+            else:
+                down_b.state(['!disabled'])
+                del_b.state(['!disabled'])
+                value_lb.clear()
+                _down.clear()
+                _down.extend(
+                    value_lb.add_download_values_and_fresh(download_list[_this.get()]["value"], self.crawlers, fresh_event=user_new_download_list)
+                )
+        def del_func():
+            value_lb.clear()
+            _this_int = _this.get()
+            if _this_int < 0:
+                return
+            download_list.pop(_this_int)
+            list_lb.delete(0, "end")
+            for _in in range(len(download_list)):
+                new_item(_in)
+            down_b.state(['disabled'])
+            del_b.state(['disabled'])
+        def down_func():
+            list_lb.config(state="disabled")
+            down_b.state(['disabled'])
+            del_b.state(['disabled'])
+            for i in _down:
+                pool.submit(i)
+            pool.shutdown(wait=True)
+            list_lb.config(state="normal")
+            down_b.state(['!disabled'])
+            del_b.state(['!disabled'])
+
+        down_b.state(['disabled'])
+        del_b.state(['disabled'])
+
+        down_b.config(command=down_func)
+        del_b.config(command=del_func)
+        list_lb.bind("<<ListboxSelect>>", selected)
+        win.mainloop(0)
+
     def win_merge(self):
         # 基本架构定义
         win = tk.Toplevel(self.root)
@@ -2378,13 +2587,12 @@ class GUI:
     def run(self):
         self.root.mainloop()
 
-    def __del__(self):
-        try:
-            del self.main_ex
-            with open(os.path.join(THIS_PATH, "save.json"), "w", encoding="utf-8") as f:
-                f.write(json.dumps(self.json))
-        except:
-            pass
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_value, traceback):
+        del self.main_ex
+        with open(os.path.join(THIS_PATH, "save.json"), "w", encoding="utf-8") as f:
+                f.write(json.dumps(self.json, ensure_ascii=False, indent=4))
 
     @staticmethod
     def get_center(w: int, h: int) -> str:
@@ -2393,5 +2601,5 @@ class GUI:
         return f"{w}x{h}+{c[0] - c[2]}+{c[1] - c[3]}"
 
 if __name__ == "__main__":
-    a = GUI((800, 600))
-    a.run()
+    with GUI((800, 600)) as Main:
+        Main.run()

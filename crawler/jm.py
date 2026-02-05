@@ -88,6 +88,7 @@ class JMComic:
             except:
                 p.stop()
             else:
+                p.stop()
                 break
         self.tag = read_tag(root.find_all(_tag["homepage_tag"][0], class_=_tag["homepage_tag"][1]))
         self.writer = read_tag(root.find_all(_tag["homepage_writer"][0], class_=_tag["homepage_writer"][1]))
@@ -111,7 +112,6 @@ class JMComic:
                     self.chapter.append([_name, int(_c.get("data-album")), 0])
         else:
             self.chapter.append(["第1话", self.id, self.page])
-        p.stop()
 
     def download(self, path: str) -> bool:
         """下载漫画内容至指定目录"""
