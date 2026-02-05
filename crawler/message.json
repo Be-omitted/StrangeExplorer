@@ -1,7 +1,7 @@
 [
   {
     "name": "JM-漫画",
-    "notes": "获取JM指定id漫画的相关信息，暂时仅支持漫画\n须使用东亚或东南亚ip(不含大陆ip)\n为避免占用服务器资源，建议在非高峰期使用",
+    "notes": "获取JM指定id漫画的相关信息，暂时仅支持漫画\n须使用东亚或东南亚ip(不含大陆ip)\n为避免占用服务器资源，建议在非高峰期使用\n受反爬虫影响，可能会打开网页窗口",
     "mark": "JMComic#",
     "init": "",
     "check": "[BaseUrl]\\Crawler\\crawler.exe --source JMComic --check",
