@@ -15,7 +15,7 @@ import subprocess
 import CrawlerAPI
 
 NAME = "StrangeExplorer"
-__version__ = "1.1"
+__version__ = "1.2"
 HEAD = f"{NAME}{__version__}"
 THIS_PATH = os.getcwd()
 ICO_PATH = os.path.join(THIS_PATH, "common\\m_icon.ico")
