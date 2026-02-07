@@ -47,18 +47,19 @@ max_pool = 30
 
 def jm_check() -> tuple[bool, int|str]:
     """检查是否可联通"""
-    hc = req.Request(url=URL,
-                     headers=headers, )
+    p = sync_playwright().start()
+    browser = p.chromium.launch(headless=False, args=["--blink-settings=imagesEnabled=false"])
+    pages = browser.new_page()
+    pages.goto(URL + "album/" + str(114514), wait_until="domcontentloaded")
+    pages.wait_for_timeout(5000)
+    daa = pages.content()
+    root = bs4.BeautifulSoup(daa, 'html.parser')
     try:
-        with req.urlopen(hc, timeout=60) as data:
-            if data.getcode() == 200:
-                return True, f"状态码：{data.getcode()}"
-            else:
-                return False, f"状态码：{data.getcode()}"
-    except urllib.error.HTTPError as e:
-        return False, e.code
-    except urllib.error.URLError as e:
-        return False, e.reason
+        name = root.find(_tag["homepage_name"][0], class_=_tag["homepage_name"][1]).text.strip()
+    except:
+        return False, ""
+    else:
+        return True, f"状态码：200"
 def jm_get_id_notes(comics_id: int | str) -> str:
     return f"来自平台：JM\tJM号：{comics_id}"
 _tag = {
@@ -77,10 +78,10 @@ class JMComic:
         self.error_page_urls = set()  # 表示误下载的不存在的空白页
         while 1:
             p = sync_playwright().start()
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=False, args=["--blink-settings=imagesEnabled=false"])
             pages = browser.new_page()
-            pages.goto(URL + "album/" + str(comics_id))
-            pages.wait_for_load_state("load")
+            pages.goto(URL + "album/" + str(comics_id), wait_until="domcontentloaded")
+            pages.wait_for_timeout(5000)
             daa = pages.content()
             root = bs4.BeautifulSoup(daa, 'html.parser')
             try:

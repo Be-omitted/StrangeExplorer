@@ -70,7 +70,8 @@ class CrawlerRule:
         if key:
             source = source.replace("[KEY]", key, -1)
         if old:
-            source = source.replace("[OldUrl]", key, -1)
+            source = source.replace("[OldUrl]", old, -1)
+        source = source.replace("\\", "/", -1)
         return source
 class Crawler:
     """
@@ -172,10 +173,10 @@ def read_file_crawler(path: str, rule: CrawlerRule) -> list[Crawler]:
                               update_data=_d["update_data"], init=_d["init"], check=_d["check"]))
     return cl
 
-def init_crawler(rule: CrawlerRule, src: str, message_path: str) -> bool:
+def init_crawler(rule: CrawlerRule, src: str, message_path: str) -> tuple[bool, dict]:
     """导入新爬虫"""
     if not os.path.isdir(src):
-        return False
+        return False, {}
     dst = os.path.join(rule.replaceRule["[BaseUrl]"], os.path.basename(os.path.normpath(src)))
     shutil.copytree(src=src, dst=dst, dirs_exist_ok=True)
     new_message = os.path.join(dst, "message.json")
@@ -183,7 +184,7 @@ def init_crawler(rule: CrawlerRule, src: str, message_path: str) -> bool:
         new_message = json.loads(f.read())
     with open(message_path, "r", encoding="utf-8") as f:
         message = json.loads(f.read())
-    message["crawler"] = message["crawler"] + new_message
+    message["crawler"].extend(new_message)
     with open(message_path, "w", encoding="utf-8") as f:
         f.write(json.dumps(message, ensure_ascii=False, indent=4))
-    return True
+    return True, new_message

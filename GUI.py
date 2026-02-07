@@ -24,7 +24,7 @@ USER32 = ctypes.windll.user32
 SCREEN_W = USER32.GetSystemMetrics(0)
 SCREEN_H = USER32.GetSystemMetrics(1)
 
-DEFAULT_SAVE_JSON = {"history_path": "", "crawler": []}
+DEFAULT_SAVE_JSON = {"history_path": "", "crawler": [], "download_list": []}
 main_gui = None  # type: GUI|None
 
 def init_style() -> tk.Style:
@@ -831,13 +831,15 @@ class ListBox:
             _data["state"] = "or"  # 未完成前设为异常
             _cr = crawlers[_cr_c.current()]
             _returncode = _cr.use_download_data(key=_data["key"])
-            if _returncode == 0:
+            if _returncode:
                 _data["state"] = "yes"
             else:
                 _data["state"] = "no"
             fresh()
         def download_this():
-            pool = ThreadPoolExecutor(max_workers=10)
+            if _data["state"] == "yes":
+                return
+            pool = ThreadPoolExecutor(max_workers=1)
             pool.submit(download)
         def _del():
             _del_func(_data)
@@ -846,7 +848,7 @@ class ListBox:
         _key_e.bind("<KeyRelease>", lambda _: fresh())
         _cr_c.bind("<<ComboboxSelected>>", lambda _: fresh())
         fresh()
-        return download
+        return download_this
 
     def add_tags_and_fresh(self, _data: list[tuple[str, str]], ex: SQL.Explorer, text: str="刷新更多", fresh_event=None):
         for n, nt in _data:
@@ -1715,8 +1717,9 @@ class GUI:
             if _this == cr_lb.size() - 1:
                 path = tk.askdirectory()
                 if path:
-                    CrawlerAPI.init_crawler(self.BaseCrawlerRule, path, os.path.join(THIS_PATH, "save.json"))
+                    _is, _new = CrawlerAPI.init_crawler(self.BaseCrawlerRule, path, os.path.join(THIS_PATH, "save.json"))
                     self.crawlers = CrawlerAPI.read_file_crawler(os.path.join(THIS_PATH, "save.json"), self.BaseCrawlerRule)
+                    self.json["crawler"].extend(_new)
                     _init()
             else:
                 try:
@@ -1815,26 +1818,28 @@ class GUI:
             list_lb.insert("end", download_list[key]["name"])
             list_lb.insert("end", "新建下载任务")
         def user_new_item():
-            _name = tk.StringVar(value="新下载任务")
             new_win = tk.Toplevel(self.root)
             new_win.geometry(self.get_center(250, 80))
             new_win.title(HEAD + "--新建下载任务")
             new_win["background"] = "#F8F8FF"
             new_win.wm_iconbitmap(ICO_PATH)
+
+            tk.Label(new_win, text="输入名称：").grid(row=1, column=1, sticky="nsew", pady=5)
+            _en = tk.Entry(new_win, style="MainBase.TEntry",)
+            _en.grid(row=1, column=2, sticky="nsew", pady=5)
             def new():
-                name = _name.get()
+                name = _en.get()
                 if not name:
                     name = "新下载任务"
                 download_list.append({"name": name, "value": []})
                 new_item(-1)
-                del _name
                 new_win.destroy()
-            tk.Label(new_win, text="输入名称：").grid(row=1, column=1, sticky="nsew", pady=5)
-            tk.Entry(new_win, style="MainBase.TEntry", textvariable=_name).grid(row=1, column=2, sticky="nsew", pady=5)
             tk.Button(new_win, text="确认", style="MainBase.TButton", command=new).grid(row=2, column=2, sticky="e", pady=5)
             new_win.mainloop(0)
         for _i in range(len(download_list)):
             new_item(_i)
+        if not len(download_list):
+            list_lb.insert("end", "新建下载任务")
 
         def user_new_download_list(e):
             _this.set(list_lb.curselection()[0])
@@ -1874,8 +1879,7 @@ class GUI:
             down_b.state(['disabled'])
             del_b.state(['disabled'])
             for i in _down:
-                pool.submit(i)
-            pool.shutdown(wait=True)
+                i()
             list_lb.config(state="normal")
             down_b.state(['!disabled'])
             del_b.state(['!disabled'])
@@ -1883,7 +1887,7 @@ class GUI:
         down_b.state(['disabled'])
         del_b.state(['disabled'])
 
-        down_b.config(command=down_func)
+        down_b.config(command=lambda : pool.submit(down_func))
         del_b.config(command=del_func)
         list_lb.bind("<<ListboxSelect>>", selected)
         win.mainloop(0)
@@ -2590,7 +2594,6 @@ class GUI:
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_value, traceback):
-        del self.main_ex
         with open(os.path.join(THIS_PATH, "save.json"), "w", encoding="utf-8") as f:
                 f.write(json.dumps(self.json, ensure_ascii=False, indent=4))
 
